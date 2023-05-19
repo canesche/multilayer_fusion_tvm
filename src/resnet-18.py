@@ -1,117 +1,116 @@
 import tvm
-from tvm import te
-from tvm import relay
+from tvm import te, topi, relay
+from tvm.contrib import graph_executor, graph_runtime
 import numpy as np
 
-# Define the ResNet-18 architecture
-def resnet_block(inputs, channels, strides=(1, 1), first_layer=False):
-    # Convolutional layer 1
-    conv1 = relay.nn.conv2d(
-        inputs,
-        relay.var("weight"),
-        strides=strides,
-        padding=(1, 1),
-        channels=channels,
-        kernel_size=(3, 3),
-        data_layout="NHWC",
-    )
-    bn1 = relay.nn.batch_norm(conv1, relay.var("gamma"), relay.var("beta"), relay.var("mean"), relay.var("variance"))
-    relu1 = relay.nn.relu(bn1)
-    
-    # Convolutional layer 2
-    conv2 = relay.nn.conv2d(
-        relu1,
-        relay.var("weight"),
-        strides=(1, 1),
-        padding=(1, 1),
-        channels=channels,
-        kernel_size=(3, 3),
-        data_layout="NHWC",
-    )
-    bn2 = relay.nn.batch_norm(conv2, relay.var("gamma"), relay.var("beta"), relay.var("mean"), relay.var("variance"))
-    
-    # Shortcut connection
-    if first_layer:
-        shortcut = relay.nn.conv2d(
-            relu1,
-            relay.var("weight"),
-            strides=strides,
-            padding=(1, 1),
-            channels=channels,
-            kernel_size=(1, 1),
-            data_layout="NHWC",
-        )
-        shortcut_bn = relay.nn.batch_norm(
-            shortcut, relay.var("gamma"), relay.var("beta"), relay.var("mean"), relay.var("variance")
-        )
-    else:
-        shortcut_bn = inputs
-    
-    # Residual connection
-    add = relay.add(bn2, shortcut_bn)
-    relu2 = relay.nn.relu(add)
-    
-    return relu2
+# Define the ResNet-18 architecture using TE
+def resnet_18(input_shape, num_classes):
+    # Define input tensor
+    data = te.placeholder(input_shape, name='data')
+    data_layout = 'NCHW'
 
+    # Convolutional helper function
+    def conv2d(in_channel, out_channel, kernel, stride, padding, name):
+        weight = te.placeholder((out_channel, in_channel, kernel, kernel), name=name+'_weight')
+        bias = te.placeholder((1,out_channel,1,1), name=name+'_bias')
+        conv = topi.nn.conv2d(data, weight, stride, padding, dilation=1, data_layout=data_layout)
+        bias_add = topi.add(conv, bias)
+        return bias_add, weight, bias
 
-def resnet_18():
-    data = relay.var("data", shape=(1, 224, 224, 3), dtype="float32")
-    conv = relay.nn.conv2d(
-        data,
-        relay.var("weight"),
-        strides=(2, 2),
-        padding=(3, 3),
-        channels=64,
-        kernel_size=(7, 7),
-        data_layout="NHWC",
-    )
-    bn = relay.nn.batch_norm(conv, relay.var("gamma"), relay.var("beta"), relay.var("mean"), relay.var("variance"))
-    relu = relay.nn.relu(bn)
-    pool = relay.nn.max_pool2d(relu, pool_size=(3, 3), strides=(2, 2), padding=(1, 1), layout="NHWC")
-    
-    channels = [64, 64, 128, 256, 512]
-    strides = [(1, 1), (2, 2), (2, 2), (2, 2)]
-    for i in range(4):
-        first_layer = True if i == 0 else False
-        pool = resnet_block(pool, channels[i + 1], strides[i], first_layer)
-    
+    # Basic block helper function
+    def basic_block(in_channel, out_channel, stride, name):
+        identity = data
+        out, weight, bias = conv2d(in_channel, out_channel, 3, stride, 1, name=name+'_conv1')
+        out = topi.nn.relu(out)
+        out, weight, bias = conv2d(out_channel, out_channel, 3, 1, 1, name=name+'_conv2')
+        if in_channel != out_channel or stride != 1:
+            identity, _, _ = conv2d(in_channel, out_channel, 1, stride, 0, name=name+'_downsample')
+        identity = topi.reshape(identity, out.shape)
+        out = topi.add(out, identity)
+        out = topi.nn.relu(out)
+        return out, weight, bias
+
+    # Stage 1
+    conv1, _, _ = conv2d(3, 64, 7, 2, 3, name='stage1')
+    relu1 = topi.nn.relu(conv1)
+    out1 = topi.nn.pool2d(relu1, kernel=(3,3), stride=(2,2), dilation=(1,1), padding=(1,1,1,1), layout="NCHW", pool_type="max")
+
+    print(out1.shape)
+
+    # Stage 2
+    out, _, _ = basic_block(64, 64, 1, name='stage2_1')
+    out, _, _ = basic_block(64, 64, 1, name='stage2_2')
+
+    # Stage 3
+    out, _, _ = basic_block(64, 128, 2, name='stage3_1')
+    out, _, _ = basic_block(128, 128, 1, name='stage3_2')
+
+    # Stage 4
+    out, _, _ = basic_block(128, 256, 2, name='stage4_1')
+    out, _, _ = basic_block(256, 256, 1, name='stage4_2')
+
+    # Stage 5
+    out5_1, w5_1, b5_1 = basic_block(256, 512, 2, name='stage5_1')
+    out5_2, w5_2, b5_2 = basic_block(512, 512, 1, name='stage5_2')
+
     # Global average pooling
-    pool = relay.nn.avg_pool2d(pool, pool_size=(7, 7), strides=(1, 1), layout="NHWC")
-    flatten = relay.nn.batch_flatten(pool)
-    dense = relay.nn.dense(flatten, relay.var("weight"), units=1000)
-    softmax = relay.nn.softmax(dense)
-    
-    return relay.Function(relay.analysis.free_vars(softmax), softmax)
+    g_avg_pool = topi.nn.global_pool(out5_2, "avg", layout=data_layout)
+
+    # Fully connected layer
+    weight_fc = te.placeholder((num_classes, 512), name='fc_weight')
+    bias_fc = te.placeholder((num_classes,), name='fc_bias')
+    flat = topi.nn.flatten(g_avg_pool)
+    dense = topi.nn.dense(flat, weight_fc)
+    bias_f = topi.add(dense, bias_fc)
+
+    # Softmax
+    out_soft = topi.nn.softmax(bias_f)
+
+    # Generate schedule
+    s = te.create_schedule([out_soft.op])
+
+    print(tvm.lower(s, [data, weight_fc, bias_fc, w5_1, b5_1, w5_2, b5_2], simple_mode=True))
+
+    #s[out5].compute_inline()
+
+    #print(tvm.lower(s, [data, weight_fc, bias_fc, w, b], simple_mode=True))
+
+    # Return build the function
+    return tvm.build(s, [data, weight_fc, bias_fc, w5_1, b5_1, w5_2, b5_2], "llvm")
 
 
-# Compile the model with TVM
-target = "llvm"
-target_host = "llvm"
+# Example 
+dev = tvm.cpu()
+input_shape = (1, 3, 224, 224)  # Input shape (batch_size, channels, height, width)
+num_classes = 1000  # Number of output classes
+lib = resnet_18(input_shape, num_classes)
+lib.export_library("compiled_lib.so")
+lib: tvm.runtime.Module = tvm.runtime.load_module("compiled_lib.so")
 
-resnet = resnet_18()
-mod, params = relay.frontend.from_expr(resnet)
+# Generate random inputs
+data_np = np.random.rand(*input_shape).astype("float32")
+weight_fc_np = np.random.rand(num_classes, 512).astype("float32")
+bias_fc_np = np.random.rand(num_classes).astype("float32")
 
-with tvm.transform.PassContext(opt_level=3):
-    lib = relay.build(mod, target=target, target_host=target_host, params=params)
+# Create TVM runtime module
+#module = graph_runtime.graph_executor.GraphModule(lib[lib.entry_name](dev))
 
-# Create TVM runtime and module
-ctx = tvm.cpu()
-module = tvm.runtime.GraphModule(lib["default"](ctx))
+#print(module.get_num_inputs())
 
-# Set the input shape
-input_shape = (1, 224, 224, 3)
+#module.set_input('data', data_np)
+#module.set_input('fc_weight', weight_fc_np)
+#module.set_input('fc_bias', bias_fc_np)
 
-# Create a random input tensor
-input_data = tvm.nd.array(np.random.uniform(size=input_shape).astype("float32"))
+#print(module.get_input())
 
-# Set the input data
-module.set_input("data", input_data)
+#module.set_input('stage5_2_conv2_weight', weight_fc_np)
+#module.set_input('stage5_2_conv2_bias', bias_fc_np)
+
+#print(module.benchmark(dev, number=100, repeat=3))
 
 # Run inference
-module.run()
+#module.run()
 
-# Get the output
-output = module.get_output(0)
-
-print("Output shape:", output.shape)
-print("Output values:", output.asnumpy())
+# Get output
+#output = module.get_output(0)
+#print(output)

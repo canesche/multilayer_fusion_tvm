@@ -2,7 +2,7 @@ import tvm
 
 from tvm import topi, relay, te
 
-import logging
+import logging 
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -28,9 +28,11 @@ def computer_inline_example():
         relu1 = topi.nn.relu(bias1)
 
         s1 = te.create_schedule(relu1.op)
+        print("----------------ORIGINAL------------------")
         print(tvm.lower(s1, [A, B, W], simple_mode=True))
 
         s1[bias1].compute_inline()
+        print("--------------COMPUTE LINE-------------------")
         print(tvm.lower(s1, [A, B, W], simple_mode=True))
 
 def fuse_example_1():
@@ -41,11 +43,12 @@ def fuse_example_1():
 
         # Creating schedule
         s1 = te.create_schedule(relu1.op)
-        print(tvm.lower(s1, [A, B, W], simple_mode=True))
+        #print(tvm.lower(s1, [A, B, W], simple_mode=True))
 
         # fuse relu1 into bias1 (It has dependency)
         s1[bias1].compute_at(s1[relu1], relu1.op.axis[2])
 
+        print("--------------relu1 into bias1-------------------")
         # print the code in TensorIR format
         print(tvm.lower(s1, [A, B, W], simple_mode=True))
 
@@ -60,10 +63,9 @@ def fuse_example_2():
         s1 = te.create_schedule([bias1.op, bias2.op])
 
         # fuse bias1 into bias2 (It has no dependency) 
-        # ERROR here, they can't combined bias1 and bias2
+        # ERROR here, It can't combined bias1 and bias2
         # Observation bias1 and bias2 have the same shape.
-        s1[bias1].compute_root()
-        #s1[bias2].compute_at(s1[bias1], bias1.op.axis[2])
+        s1[bias2].compute_at(s1[bias1], bias1.op.axis[2])
 
         print(tvm.lower(s1, [A, B, W], simple_mode=True))
 
@@ -108,7 +110,8 @@ def computer_at_example_2():
         print(tvm.lower(s2, [A, B, W], simple_mode=True))
 
 
-fuse_example_2()
+computer_inline_example()
+fuse_example_1()
 
 #conv2_result = relay.nn.conv2d(relu_result, kernel, 1, 0)
 

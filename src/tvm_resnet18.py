@@ -1,6 +1,8 @@
 import tvm
 from tvm import relay, autotvm, te, topi
 import tvm.relay.testing
+from tvm.relay.testing import layers
+from tvm.relay.testing.init import create_workload
 
 import numpy as np
 
@@ -16,10 +18,6 @@ def resnet_18_tvm(name, dtype, layout):
     )
     return mod, params, input_shape, output_shape
 
-def resnet_18():
-    pass
-
-
 if __name__ == "__main__":
 
     name = "resnet-18"
@@ -29,13 +27,9 @@ if __name__ == "__main__":
 
     target = "llvm"
 
-    resnet_18(name, dtype, layout)
-
-    '''
     mod, params, input_shape, output_shape = resnet_18_tvm(name, dtype, layout)
 
     tasks = autotvm.task.extract_from_program(mod["main"], target=target, params=params)
 
     for i, t in enumerate(tasks):
         print(i+1, t)
-    '''
