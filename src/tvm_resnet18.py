@@ -27,6 +27,7 @@ if __name__ == "__main__":
 
     target = "llvm"
 
+    
     mod, params, input_shape, output_shape = resnet_18_tvm(name, dtype, layout)
 
     tasks = autotvm.task.extract_from_program(mod["main"], target=target, params=params)

@@ -88,6 +88,7 @@ def resnet_18():
 target = "llvm"
 target_host = "llvm"
 
+
 resnet = resnet_18()
 mod, params = relay.frontend.from_expr(resnet)
 

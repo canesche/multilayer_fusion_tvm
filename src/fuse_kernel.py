@@ -3,7 +3,6 @@ import tvm
 from tvm import topi, relay, te
 
 import logging 
-
 logging.basicConfig(level=logging.DEBUG)
 
 batch = 1

@@ -1,0 +1,72 @@
+# from tvm.script import ir as I
+# from tvm.script import tir as T
+
+@I.ir_module
+class Module:
+    @T.prim_func
+    def main(data: T.Buffer((1, 3, 224, 224), "float32"), fc_weight: T.Buffer((1000, 512), "float32"), fc_bias: T.Buffer((1000,), "float32"), stage5_2_conv2_weight: T.Buffer((512, 512, 3, 3), "float32"), stage5_2_conv2_bias: T.Buffer((1, 512, 1, 1), "float32")):
+        T.func_attr({"from_legacy_te_schedule": T.bool(True), "global_symbol": "main", "tir.noalias": T.bool(True)})
+        pad_temp = T.allocate([153228], "float32", "global")
+        conv2d_nchw = T.allocate([25690112], "float32", "global")
+        T_reshape = T.allocate([25690112], "float32", "global")
+        adaptive_pool_sum = T.allocate([512], "float32", "global")
+        T_matmul_NT = T.allocate([1000], "float32", "global")
+        T_softmax_maxelem = T.allocate([1], "float32", "global")
+        T_softmax_expsum = T.allocate([1], "float32", "global")
+        pad_temp_1 = T.Buffer((153228,), data=pad_temp)
+        data_1 = T.Buffer((150528,), data=data.data)
+        for i1, i2, i3 in T.grid(3, 226, 226):
+            pad_temp_1[i1 * 51076 + i2 * 226 + i3] = T.if_then_else(1 <= i2 and i2 < 225 and 1 <= i3 and i3 < 225, data_1[i1 * 50176 + i2 * 224 + i3 - 225], T.float32(0))
+        conv2d_nchw_1 = T.Buffer((25690112,), data=conv2d_nchw)
+        for ff, yy, xx in T.grid(512, 224, 224):
+            conv2d_nchw_1[ff * 50176 + yy * 224 + xx] = T.float32(0)
+            for rc, ry, rx in T.grid(3, 3, 3):
+                cse_var_1: T.int32 = ff * 50176 + yy * 224 + xx
+                stage5_2_conv2_weight_1 = T.Buffer((2359296,), data=stage5_2_conv2_weight.data)
+                conv2d_nchw_1[cse_var_1] = conv2d_nchw_1[cse_var_1] + pad_temp_1[rc * 51076 + yy * 226 + ry * 226 + xx + rx] * stage5_2_conv2_weight_1[ff * 4608 + rc * 9 + ry * 3 + rx]
+        conv2d_nchw_2 = T.Buffer((25690112,), data=conv2d_nchw)
+        for ax1, ax2, ax3 in T.grid(512, 224, 224):
+            cse_var_2: T.int32 = ax1 * 50176 + ax2 * 224 + ax3
+            stage5_2_conv2_bias_1 = T.Buffer((512,), data=stage5_2_conv2_bias.data)
+            conv2d_nchw_2[cse_var_2] = conv2d_nchw_1[cse_var_2] + stage5_2_conv2_bias_1[ax1]
+        T_reshape_1 = T.Buffer((25690112,), data=T_reshape)
+        for ax1, ax2, ax3 in T.grid(512, 224, 224):
+            cse_var_3: T.int32 = ax2 * 224
+            T_reshape_1[ax1 * 50176 + cse_var_3 + ax3] = data_1[ax1 % 3 * 50176 + cse_var_3 + ax3]
+        conv2d_nchw_3 = T.Buffer((25690112,), data=conv2d_nchw)
+        for ax1, ax2, ax3 in T.grid(512, 224, 224):
+            cse_var_4: T.int32 = ax1 * 50176 + ax2 * 224 + ax3
+            conv2d_nchw_3[cse_var_4] = conv2d_nchw_2[cse_var_4] + T_reshape_1[cse_var_4]
+        adaptive_pool_sum_1 = T.Buffer((512,), data=adaptive_pool_sum)
+        for ax1 in range(512):
+            adaptive_pool_sum_1[ax1] = T.float32(0)
+            for rv0, rv1 in T.grid(224, 224):
+                adaptive_pool_sum_1[ax1] = adaptive_pool_sum_1[ax1] + T.max(conv2d_nchw_3[ax1 * 50176 + rv0 * 224 + rv1], T.float32(0))
+        for ax1 in range(512):
+            adaptive_pool_sum_2 = T.Buffer((512,), data=adaptive_pool_sum)
+            adaptive_pool_sum_2[ax1] = adaptive_pool_sum_1[ax1] * T.float32(1.9929846938775509e-05)
+        T_matmul_NT_1 = T.Buffer((1000,), data=T_matmul_NT)
+        for j in range(1000):
+            T_matmul_NT_1[j] = T.float32(0)
+            for k in range(512):
+                adaptive_pool_sum_2 = T.Buffer((512,), data=adaptive_pool_sum)
+                fc_weight_1 = T.Buffer((512000,), data=fc_weight.data)
+                T_matmul_NT_1[j] = T_matmul_NT_1[j] + adaptive_pool_sum_2[k] * fc_weight_1[j * 512 + k]
+        T_matmul_NT_2 = T.Buffer((1000,), data=T_matmul_NT)
+        for ax1 in range(1000):
+            fc_bias_1 = T.Buffer((1000,), data=fc_bias.data)
+            T_matmul_NT_2[ax1] = T_matmul_NT_1[ax1] + fc_bias_1[ax1]
+        T_softmax_maxelem_1 = T.Buffer((1,), data=T_softmax_maxelem, align=4)
+        T_softmax_maxelem_1[0] = T.float32(-3.4028234663852886e+38)
+        for k in range(1000):
+            T_softmax_maxelem_1[0] = T.max(T_softmax_maxelem_1[0], T_matmul_NT_2[k])
+        T_matmul_NT_3 = T.Buffer((1000,), data=T_matmul_NT)
+        for i1 in range(1000):
+            T_matmul_NT_3[i1] = T.exp(T_matmul_NT_2[i1] - T_softmax_maxelem_1[0])
+        T_softmax_expsum_1 = T.Buffer((1,), data=T_softmax_expsum, align=4)
+        T_softmax_expsum_1[0] = T.float32(0)
+        for k in range(1000):
+            T_softmax_expsum_1[0] = T_softmax_expsum_1[0] + T_matmul_NT_3[k]
+        for i1 in range(1000):
+            T_matmul_NT_4 = T.Buffer((1000,), data=T_matmul_NT)
+            T_matmul_NT_4[i1] = T_matmul_NT_3[i1] / T_softmax_expsum_1[0]
