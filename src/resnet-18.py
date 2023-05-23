@@ -87,7 +87,7 @@ def resnet_18(input_shape, num_classes, data_layout='NCHW'):
     #print(tvm.lower(s, [data, weight, bias], simple_mode=True))
 
     # Return build the function
-    return tvm.build(s, [data], "llvm", name="resnet-18")
+    return tvm.build(s, [data], target="llvm", name="main")
 
 
 # Example 
@@ -105,19 +105,19 @@ data_np = np.random.rand(*input_shape).astype("float32")
 #bias_fc_np = np.random.rand(num_classes).astype("float32")
 
 # Create TVM runtime module
-module = graph_runtime.graph_executor.GraphModule(lib["resnet-18"](dev))
-module.set_input('data', data_np)
+module = graph_executor.GraphModule(lib["main"](dev))
+#module.set_input('data', data_np)
 
 #module.set_input('fc_weight', weight_fc_np)
 #module.set_input('fc_bias', bias_fc_np)
 
-
+#print(module.load_params())
 
 #print(module.benchmark(dev, number=100, repeat=3))
 
 # Run inference
-module.run()
+#module.run()
 
 # Get output
-output = module.get_output(0)
+#output = module.get_output(0)
 #print(output)
