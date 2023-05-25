@@ -10,24 +10,39 @@ from scipy import stats
 dtype="float32"
 dev = tvm.cpu(0)
 
-N, H, W, CO, CI, KH, KW, strides, padding = 1, 7, 7, 512, 512, 3, 3, (1, 1), (1, 1)
+def get_best_time(log, ms=True):
+    import json
 
-d_tvm = tvm.nd.array((np.random.uniform(size=(N, CI, H, W))).astype(dtype), device=dev)
-f_tvm = tvm.nd.array((np.random.uniform(size=(CO, CI, KH, KW))).astype(dtype), device=dev)
-b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev)
+    f = open(log, "r")
+    best_avg = 9999.0
+    best_cfg = {}
+    for line in f.readlines():
+        data = json.loads(line)
+        r = np.mean(data["result"][0])
+        if (np.mean(best_avg) > r):
+            best_avg = data["result"][0]
+            best_cfg = data["config"]["entity"]
+    f.close()
 
-data = te.placeholder((N, CI, H, W), name="data")
-kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
-bias = te.placeholder((1, W, 1), name='bias')
+    if ms: # convet to ms
+        best_avg *= 1000
+    return best_avg, best_cfg
 
 def p_value(elem_1, elem_2):
     return stats.ttest_ind(elem_1, elem_2).pvalue
 
 def normal(N, H, W, CO, CI, KH, KW, stride, padding):
 
+    d_tvm = tvm.nd.array((np.random.uniform(size=(N, CI, H, W))).astype(dtype), device=dev)
+    f_tvm = tvm.nd.array((np.random.uniform(size=(CO, CI, KH, KW))).astype(dtype), device=dev)
+    b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev)
+
+    data = te.placeholder((N, CI, H, W), name="data")
+    kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
+    bias = te.placeholder((1, W, 1), name='bias')
+
     conv1 = topi.nn.conv2d(data, kernel, strides=stride, padding=padding, dilation=1, data_layout="NCHW")
-    bias1 = topi.add(conv1, bias)
-    relu1 = topi.nn.relu(bias1)
+    relu1 = topi.nn.relu(conv1)
 
     s = te.create_schedule(relu1.op)
     args = [data, kernel, bias]
@@ -36,6 +51,10 @@ def normal(N, H, W, CO, CI, KH, KW, stride, padding):
 
 @autotvm.template("only_opt")
 def only_opt(N, H, W, CO, CI, KH, KW, stride, padding):
+
+    data = te.placeholder((N, CI, H, W), name="data")
+    kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
+    bias = te.placeholder((1, W, 1), name='bias')
 
     conv1 = topi.nn.conv2d(data, kernel, strides=stride, padding=padding, dilation=1, data_layout="NCHW")
     relu1 = topi.nn.relu(conv1)
@@ -75,8 +94,8 @@ def only_opt(N, H, W, CO, CI, KH, KW, stride, padding):
 
     return s, args
 
-@autotvm.template("fusion_opt_op")
-def fusion_opt_op(N, H, W, CO, CI, KH, KW, stride, padding):
+@autotvm.template("fusion_opt")
+def fusion_opt(N, H, W, CO, CI, KH, KW, stride, padding):
 
     # Create the input tensor
     data = te.placeholder((N, CI, H, W), name="data")
@@ -84,8 +103,7 @@ def fusion_opt_op(N, H, W, CO, CI, KH, KW, stride, padding):
     bias = te.placeholder((1, W, 1), name='bias')
 
     conv1 = topi.nn.conv2d(data, kernel, strides=stride, padding=padding, dilation=1, data_layout="NCHW")
-    bias1 = topi.add(conv1, bias)
-    relu1 = topi.nn.relu(bias1)
+    relu1 = topi.nn.relu(conv1)
 
     # Create a TVM schedule for the computation
     s = te.create_schedule(relu1.op)
@@ -96,7 +114,7 @@ def fusion_opt_op(N, H, W, CO, CI, KH, KW, stride, padding):
     cfg = autotvm.get_config()
 
     # merging the kernel first and then applying tile optimization works!
-    cfg.define_knob("fuse_1", [i for i in range(0,9)])
+    cfg.define_knob("fuse_1", [i for i in range(0,8)])
 
     if cfg["fuse_1"].val == 1:
         s[conv1].compute_root()
@@ -118,8 +136,8 @@ def fusion_opt_op(N, H, W, CO, CI, KH, KW, stride, padding):
         s[conv1].compute_at(s[relu1], relu1.op.axis[1])
         s[conv1].compute_at(s[relu1], relu1.op.axis[2])
         s[conv1].compute_at(s[relu1], relu1.op.axis[3])
-    elif cfg["fuse_1"].val == 8:
-        s[bias1].compute_inline()
+    #elif cfg["fuse_1"].val == 8:
+    #    s[bias1].compute_inline()
 
     n, f, y, x = s[conv1].op.axis
     rc, ry, rx = s[conv1].op.reduce_axis
@@ -152,21 +170,18 @@ def fusion_opt_op(N, H, W, CO, CI, KH, KW, stride, padding):
 @autotvm.template("fusion")
 def fusion(N, H, W, CO, CI, KH, KW, stride, padding):
 
-    # Create the input tensor
     data = te.placeholder((N, CI, H, W), name="data")
     kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
     bias = te.placeholder((1, W, 1), name='bias')
 
     conv1 = topi.nn.conv2d(data, kernel, strides=stride, padding=padding, dilation=1, data_layout="NCHW")
-    bias1 = topi.add(conv1, bias)
-    relu1 = topi.nn.relu(bias1)
+    relu1 = topi.nn.relu(conv1)
 
-    # Create a TVM schedule for the computation
     s = te.create_schedule(relu1.op)
     args = [data, kernel, bias]
 
     cfg = autotvm.get_config()
-    cfg.define_knob("fuse_1", [i for i in range(0,9)])
+    cfg.define_knob("fuse_1", [i for i in range(0,8)])
 
     if cfg["fuse_1"].val == 1:
         s[conv1].compute_at(s[relu1], relu1.op.axis[1])
@@ -187,18 +202,23 @@ def fusion(N, H, W, CO, CI, KH, KW, stride, padding):
         s[conv1].compute_at(s[relu1], relu1.op.axis[1])
         s[conv1].compute_at(s[relu1], relu1.op.axis[2])
         s[conv1].compute_at(s[relu1], relu1.op.axis[3])
-    elif cfg["fuse_1"].val == 8:
-        s[bias1].compute_inline()
+    #elif cfg["fuse_1"].val == 8:
+    #    s[bias1].compute_inline()
 
     return s, args
 
-def execute_normal():
-    s, args = normal(N, H, W, CO, CI, KH, KW, strides, padding)
+def execute_normal(N, H, W, CO, CI, KH, KW, stride, padding):
+    s, args = normal(N, H, W, CO, CI, KH, KW, stride, padding)
+
+    d_tvm = tvm.nd.array((np.random.uniform(size=(N, CI, H, W))).astype(dtype), device=dev)
+    f_tvm = tvm.nd.array((np.random.uniform(size=(CO, CI, KH, KW))).astype(dtype), device=dev)
+    b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev)
+
     with tvm.transform.PassContext(opt_level=0):
         mod = tvm.build(s, args=args, target="llvm", name="main")
         mod(d_tvm, f_tvm, b_tvm)
     r = []
-    for _ in range(5):
+    for _ in range(3):
         evaluator = mod.time_evaluator(mod.entry_name, dev, number=20, repeat=1)
         mean_time = evaluator(d_tvm, f_tvm, b_tvm)
         r.append(mean_time.mean)
@@ -206,14 +226,18 @@ def execute_normal():
     print("%s,%.6f,%.6f" %("normal", np.mean(r), np.std(r)))
     return r
 
-def execute_autoTVM(tag_name, func):
+def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding):
 
-    task = autotvm.task.create(tag_name, args=(N, H, W, CO, CI, KH, KW, strides, padding), target="llvm")
+    d_tvm = tvm.nd.array((np.random.uniform(size=(N, CI, H, W))).astype(dtype), device=dev)
+    f_tvm = tvm.nd.array((np.random.uniform(size=(CO, CI, KH, KW))).astype(dtype), device=dev)
+    b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev)
+
+    task = autotvm.task.create(tag_name, args=(N, H, W, CO, CI, KH, KW, stride, padding), target="llvm")
     #print(task.config_space)
 
     measure_option = autotvm.measure_option(
         builder=autotvm.LocalBuilder(),
-        runner=autotvm.LocalRunner(repeat=3, number=10, min_repeat_ms=100, timeout=4),
+        runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100, enable_cpu_cache_flush=True),
     )
 
     tuner = autotvm.tuner.XGBTuner(task)
@@ -228,32 +252,45 @@ def execute_autoTVM(tag_name, func):
         callbacks=[autotvm.callback.log_to_file(record_file)],
     )
 
-    with tvm.target.Target("llvm"):
-        with tvm.transform.PassContext(opt_level=3):
-            with autotvm.apply_history_best(record_file):
-                s, args = func(N, H, W, CO, CI, KH, KW, strides, padding)
-                mod = tvm.build(s, args=args, target="llvm", name="main")
-                mod(d_tvm, f_tvm, b_tvm)
-
-        r = []
-        for _ in range(5):
-            evaluator = mod.time_evaluator(mod.entry_name, dev, number=20, repeat=1)
-            mean_time = evaluator(d_tvm, f_tvm, b_tvm)
-            r.append(mean_time.mean)
-        r = np.array(r)
-        print("%s,%.6f,%.6f" %(tag_name, np.mean(r), np.std(r)), end=",")
-        
-    dispatch_context = autotvm.apply_history_best(record_file)
-    best_config = dispatch_context.query(task.target, task.workload)
+    #with tvm.target.Target("llvm"):
+    #    with tvm.transform.PassContext(opt_level=3):
+    #        with autotvm.apply_history_best(record_file):
+    #            s, args = func(N, H, W, CO, CI, KH, KW, stride, padding)
+    #            mod = tvm.build(s, args=args, target="llvm", name="main")
+    #            mod(d_tvm, f_tvm, b_tvm)
+    #    r = []
+    #    for _ in range(3):
+    #        evaluator = mod.time_evaluator(mod.entry_name, dev, number=20, repeat=1)
+    #        mean_time = evaluator(d_tvm, f_tvm, b_tvm)
+    #        r.append(mean_time.mean)
+    #    r = np.array(r)
+    #    print("%s,%.6f,%.6f" %(tag_name, np.mean(r), np.std(r)), end=",")
     
-    print(best_config)
+    r, conf = get_best_time(record_file, False)
+
+    print("%s,%.6f,%.6f" %(tag_name, np.mean(r), np.std(r)), end=",")    
+    print(conf)
+    
     return r
 
-r_normal = execute_normal()
-r_fusion = execute_autoTVM("fusion", fusion)
-#r_only_opt = execute_autoTVM("only_opt", only_opt)
-#r_fusion_opt = execute_autoTVM("fusion_opt_op", fusion_opt_op)
+if __name__ == "__main__":
 
-print(p_value(r_normal, r_fusion))
-#print(p_value(r_normal, r_only_opt))
-#print(p_value(r_normal, r_fusion_opt))
+    N = 1
+    CO, CI = (3, 3)
+    KH, KW = (3, 3)
+    stride = (1, 1)
+    padding = (1, 1)
+    interval = [1024, 2048]
+
+    for i in interval:
+        H, W = (i, i)
+        print("\n(%d,%d)" %(i,i))
+
+        r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding)
+        #r_fusion = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding)
+        r_only_opt = execute_autoTVM("only_opt", only_opt, N, H, W, CO, CI, KH, KW, stride, padding)
+        #r_fusion_opt = execute_autoTVM("fusion_opt", fusion_opt, N, H, W, CO, CI, KH, KW, stride, padding)
+
+        #print(p_value(r_normal, r_fusion))
+        print(p_value(r_normal, r_only_opt))
+        #print(p_value(r_normal, r_fusion_opt))
