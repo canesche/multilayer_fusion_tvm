@@ -43,7 +43,7 @@ def only_opt(N, H, W, CO, CI, KH, KW, stride, padding):
     s = te.create_schedule(relu1.op)
     args = [data, kernel, bias]
 
-    search_space = [1,4,8,12,16,20,24,28,32]
+    search_space = [1,2,4,8,12,16,20,24,28,32]
 
     n, f, y, x = s[conv1].op.axis
     rc, ry, rx = s[conv1].op.reduce_axis

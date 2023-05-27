@@ -42,7 +42,7 @@ def only_opt(N, H, W, CO, CI, KH, KW, stride, padding):
     tensors = [conv1, bias1, relu1]
 
     cfg = autotvm.get_config()
-    search_space = [0,1,4,8,12,16,20,24,28,32]
+    search_space = [0,1,2,4,8,12,16,20,24,28,32]
     auto_tile_schedule(s, cfg, tensors, search_space)
 
     return s, args
@@ -63,7 +63,7 @@ def fusion_opt(N, H, W, CO, CI, KH, KW, stride, padding):
     tensors = [conv1, bias1, relu1]
 
     cfg = autotvm.get_config()
-    search_space = [0,1,4,8,12,16,20,24,28,32]
+    search_space = [0,1,2,4,8,12,16,20,24,28,32]
     auto_fusion_schedule(s, cfg, tensors)
     auto_tile_schedule(s, cfg, tensors, search_space)
 
@@ -151,7 +151,7 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding):
     
     r, conf = get_best_time(record_file, False)
 
-    print("%s,%.6f,%.6f" %(tag_name, np.mean(r), np.std(r)), end=",")    
+    print("%s,%.6f,%.6f,%.4f" %(tag_name, np.mean(r), np.std(r), final_time), end=",")    
     print(conf)
     
     return r
@@ -163,17 +163,17 @@ if __name__ == "__main__":
     KH, KW = (3, 3)
     stride = (1, 1)
     padding = (1, 1)
-    interval = [256,512,1024,2048]
+    interval = [256]
 
     for i in interval:
         H, W = (i, i)
         print("\n(%d,%d)" %(i,i))
 
         r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding)
-        r_fusion = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding)
+        #r_fusion = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding)
         r_only_opt = execute_autoTVM("only_opt", only_opt, N, H, W, CO, CI, KH, KW, stride, padding)
         #r_fusion_opt = execute_autoTVM("fusion_opt", fusion_opt, N, H, W, CO, CI, KH, KW, stride, padding)
 
-        print(p_value(r_normal, r_fusion))
+        #print(p_value(r_normal, r_fusion))
         print(p_value(r_normal, r_only_opt))
         #print(p_value(r_normal, r_fusion_opt))

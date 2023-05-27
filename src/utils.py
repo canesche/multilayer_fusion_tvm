@@ -43,6 +43,15 @@ def auto_fusion_schedule(s, cfg, tensors):
         elif size_schedule == 9 and cfg[name].val == 8 and cfg["fuse_%d" % t-1].val == 0:
             s[actual_tensor].compute_inline()
 
+def limited_interval(max_value, interval):
+    new_interval = []
+    for elem in interval:
+        if max_value <= elem:
+            continue
+        new_interval.append(elem)
+    return new_interval
+
+
 def auto_tile_schedule(s, cfg, tensors, search_space):
     for t in range(0,len(tensors)):
         actual_tensor = tensors[t]
@@ -53,22 +62,21 @@ def auto_tile_schedule(s, cfg, tensors, search_space):
         
         for i in range(len(axis)):
             name_axis = axis[i].var
-            #dom_axis = axis[i].dom
-            name_opt = "tile_%s_%s" %(name_axis, name_tensor)
-            cfg.define_knob(name_opt, search_space)
-            if cfg[name_opt].val != 0:
-                _, _ = s[actual_tensor].split(axis[i], cfg[name_opt].val)
+            max_value = axis[i].dom.extent.value
+            if max_value != 1:
+                name_opt = "tile_%s_%s" %(name_axis, name_tensor)
+                cfg.define_knob(name_opt, limited_interval(max_value, search_space))
+                if cfg[name_opt].val != 0:
+                    _, _ = s[actual_tensor].split(axis[i], cfg[name_opt].val)
         
         for i in range(len(reduce_axis)):
             name_axis = reduce_axis[i].var
-            #dom_axis = axis[i].dom
-            name_opt = "tile_%s_%s" %(name_axis, name_tensor)
-            cfg.define_knob(name_opt, search_space)
-            if cfg[name_opt].val != 0:
-                _, _ = s[actual_tensor].split(reduce_axis[i], cfg[name_opt].val)
-        #print(s[actual_tensor].op)
-        #print(s[actual_tensor].op.axis)
-        #print(s[actual_tensor].op.reduce_axis)
+            max_value = reduce_axis[i].dom.extent.value
+            if max_value != 1:
+                name_opt = "tile_%s_%s" %(name_axis, name_tensor)
+                cfg.define_knob(name_opt, limited_interval(max_value, search_space))
+                if cfg[name_opt].val != 0:
+                    _, _ = s[actual_tensor].split(reduce_axis[i], cfg[name_opt].val)
 
 def get_best_time(log, ms=True):
     import json
