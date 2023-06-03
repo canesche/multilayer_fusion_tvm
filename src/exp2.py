@@ -109,24 +109,25 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding):
     task = autotvm.task.create(tag_name, args=(N, H, W, CO, CI, KH, KW, stride, padding), target="llvm")
     #print(task.config_space)
 
-    begin = time.time()
+    
     measure_option = autotvm.measure_option(
         builder=autotvm.LocalBuilder(),
         runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100, enable_cpu_cache_flush=True),
     )
     tuner = autotvm.tuner.XGBTuner(task)
-    final_time = time.time() - begin
     
     record_file = "../results/exp2_%s_%dx%d.log" %(tag_name, H, W)
     
     if os.path.isfile(record_file):
         os.remove(record_file)
 
+    begin = time.time()
     tuner.tune(
         n_trial=200,
         measure_option=measure_option,
         callbacks=[autotvm.callback.log_to_file(record_file)],
     )
+    final_time = time.time() - begin
 
     with tvm.target.Target("llvm"):
         with tvm.transform.PassContext(opt_level=3):
@@ -167,7 +168,7 @@ if __name__ == "__main__":
             print(p_value(r_normal, r_fusion))
             r_tile = execute_autoTVM("tile", tile, N, H, W, CO, CI, KH, KW, stride, padding)
             print(p_value(r_normal, r_tile))
-            #r_fusion_tile = execute_autoTVM("fusion_tile", fusion_tile, N, H, W, CO, CI, KH, KW, stride, padding)
-            #print(p_value(r_normal, r_fusion_tile))
+            r_fusion_tile = execute_autoTVM("fusion_tile", fusion_tile, N, H, W, CO, CI, KH, KW, stride, padding)
+            print(p_value(r_normal, r_fusion_tile))
         except:
             print("ERROR: with %d, %d" %(H,W))

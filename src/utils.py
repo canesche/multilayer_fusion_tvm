@@ -7,7 +7,7 @@ def print_var_name(variable):
      if eval(name) == variable:
         return name
 
-def auto_fusion_schedule(s, cfg, tensors):
+def auto_fusion_schedule_seq(s, cfg, tensors):
     for t in range(0,len(tensors)-1):
         cfg = autotvm.get_config()
         name = "fuse_%d" % t
@@ -42,6 +42,42 @@ def auto_fusion_schedule(s, cfg, tensors):
             s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
         elif size_schedule == 9 and cfg[name].val == 8 and cfg["fuse_%d" % t-1].val == 0:
             s[actual_tensor].compute_inline()
+
+def auto_fusion_schedule_order(s, cfg, tensors, order):
+    for t in order:
+        cfg = autotvm.get_config()
+        name = "fuse_%d" % t
+
+        size_schedule = 8 if t == 0 or t == len(tensors)-1 else 9
+
+        cfg.define_knob(name, [i for i in range(size_schedule)])
+
+        assert t < len(tensors) 
+
+        actual_tensor = tensors[t]
+        next_tensor = tensors[t+1]
+
+        if cfg[name].val == 1:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
+        elif cfg[name].val == 2:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
+        elif cfg[name].val == 3:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
+        elif cfg[name].val == 4:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
+        elif cfg[name].val == 5:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
+        elif cfg[name].val == 6:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
+        elif cfg[name].val == 7:
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
+            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
+        #elif size_schedule == 9 and cfg[name].val == 8 and cfg["fuse_%d" % t-1].val == 0:
+        #    s[actual_tensor].compute_inline()
 
 def limited_interval(max_value, interval):
     new_interval = []
