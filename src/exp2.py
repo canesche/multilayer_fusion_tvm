@@ -2,7 +2,7 @@ import tvm, logging, sys, os, time
 from tvm import te, topi, autotvm
 import numpy as np
 
-from utils import auto_fusion_schedule, get_best_time, p_value, auto_tile_schedule
+from utils import auto_fusion_schedule_seq, get_best_time, p_value, auto_tile_schedule
 
 dtype="float32"
 dev = tvm.cpu(0)
@@ -22,7 +22,7 @@ def fusion(N, H, W, CO, CI, KH, KW, stride, padding):
     tensors = [conv1, relu1, pool1]
 
     cfg = autotvm.get_config()
-    auto_fusion_schedule(s, cfg, tensors)
+    auto_fusion_schedule_seq(s, cfg, tensors)
 
     return s, args
 
@@ -62,7 +62,7 @@ def fusion_tile(N, H, W, CO, CI, KH, KW, stride, padding):
 
     cfg = autotvm.get_config()
     search_space = [0,1,2,4,8,12,16,20,24,28,32]
-    auto_fusion_schedule(s, cfg, tensors)
+    auto_fusion_schedule_seq(s, cfg, tensors)
     auto_tile_schedule(s, cfg, tensors, search_space)
 
     return s, args
@@ -109,7 +109,6 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding):
     task = autotvm.task.create(tag_name, args=(N, H, W, CO, CI, KH, KW, stride, padding), target="llvm")
     #print(task.config_space)
 
-    
     measure_option = autotvm.measure_option(
         builder=autotvm.LocalBuilder(),
         runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100, enable_cpu_cache_flush=True),
@@ -162,13 +161,10 @@ if __name__ == "__main__":
         H, W = (i, i)
         print("\n(%d,%d)" %(i,i))
 
-        try:
-            r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding)
-            r_fusion = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding)
-            print(p_value(r_normal, r_fusion))
-            r_tile = execute_autoTVM("tile", tile, N, H, W, CO, CI, KH, KW, stride, padding)
-            print(p_value(r_normal, r_tile))
-            r_fusion_tile = execute_autoTVM("fusion_tile", fusion_tile, N, H, W, CO, CI, KH, KW, stride, padding)
-            print(p_value(r_normal, r_fusion_tile))
-        except:
-            print("ERROR: with %d, %d" %(H,W))
+        r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding)
+        r_fusion = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding)
+        print(p_value(r_normal, r_fusion))
+        r_tile = execute_autoTVM("tile", tile, N, H, W, CO, CI, KH, KW, stride, padding)
+        print(p_value(r_normal, r_tile))
+        r_fusion_tile = execute_autoTVM("fusion_tile", fusion_tile, N, H, W, CO, CI, KH, KW, stride, padding)
+        print(p_value(r_normal, r_fusion_tile))
