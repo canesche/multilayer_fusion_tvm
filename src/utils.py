@@ -57,24 +57,13 @@ def auto_fusion_schedule_order(s, cfg, tensors, order):
         actual_tensor = tensors[t]
         next_tensor = tensors[t+1]
 
+        print(next_tensor.op)
+
         if cfg[name].val == 1:
             s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
         elif cfg[name].val == 2:
             s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
         elif cfg[name].val == 3:
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
-        elif cfg[name].val == 4:
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
-        elif cfg[name].val == 5:
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
-        elif cfg[name].val == 6:
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
-        elif cfg[name].val == 7:
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
-            s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[2])
             s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[3])
         #elif size_schedule == 9 and cfg[name].val == 8 and cfg["fuse_%d" % t-1].val == 0:
         #    s[actual_tensor].compute_inline()
@@ -114,7 +103,7 @@ def auto_tile_schedule(s, cfg, tensors, search_space):
                 if cfg[name_opt].val != 0:
                     _, _ = s[actual_tensor].split(reduce_axis[i], cfg[name_opt].val)
 
-def get_best_time(log, ms=True):
+def get_best_time(log):
     import json
 
     f = open(log, "r")
@@ -122,14 +111,12 @@ def get_best_time(log, ms=True):
     best_cfg = {}
     for line in f.readlines():
         data = json.loads(line)
-        r = np.mean(data["result"][0])
-        if (np.mean(best_avg) > r):
-            best_avg = data["result"][0]
+        r = data["result"][0]
+        if (np.mean(best_avg) > np.mean(r)):
+            best_avg = r
             best_cfg = data["config"]["entity"]
     f.close()
 
-    if ms: # convet to ms
-        best_avg *= 1000
     return best_avg, best_cfg
 
 

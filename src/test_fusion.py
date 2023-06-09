@@ -22,8 +22,33 @@ def fusion(N, H, W, CO, CI, KH, KW, stride, padding, order):
     args = [data, kernel, bias]
     tensors = [conv1, bias1, relu1, pool1]
 
-    cfg = autotvm.get_config()
-    auto_fusion_schedule_order(s, cfg, tensors, order)
+    print(tvm.lower(s, args=args))
+
+    #s[conv1].compute_at(s[bias1], bias1.op.axis[3])
+    #s[bias1].compute_at(s[relu1], relu1.op.axis[3])
+    #s[relu1].compute_at(s[pool1], pool1.op.axis[3])
+    #s[bias1].compute_inline()
+    #s[relu1].compute_inline()
+    
+    s[relu1].compute_at(s[pool1], pool1.op.axis[3])
+    s[bias1].compute_at(s[relu1], relu1.op.axis[3])
+    s[conv1].compute_at(s[bias1], bias1.op.axis[3])
+
+    print(tvm.lower(s, args=args))
+    print()
+
+    #s[conv1].compute_at(s[bias1], bias1.op.axis[2])
+
+    #print(tvm.lower(s, args=args))
+    #print()
+
+    #s[conv1].compute_at(s[bias1], bias1.op.axis[1])
+    #s[conv1].compute_at(s[bias1], bias1.op.axis[2])
+
+    #print(tvm.lower(s, args=args))
+
+    #cfg = autotvm.get_config()
+    #auto_fusion_schedule_order(s, cfg, tensors, order)
 
     return s, args
 
@@ -78,46 +103,6 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding, or
     b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev) 
 
     task = autotvm.task.create(tag_name, args=(N, H, W, CO, CI, KH, KW, stride, padding, order), target=target)
-    #print(task.config_space)
-
-    space_size = len(task.config_space)
-    
-    measure_option = autotvm.measure_option(
-        builder=autotvm.LocalBuilder(),
-        runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100),
-    )
-    tuner = autotvm.tuner.XGBTuner(task)
-    
-    record_file = "../results/exp3_%s_%dx%d_%d.log" %(tag_name, H, W, number)
-    
-    if os.path.isfile(record_file):
-        os.remove(record_file)
-
-    begin = time.time()
-    tuner.tune(
-        n_trial=space_size,
-        measure_option=measure_option,
-        callbacks=[autotvm.callback.log_to_file(record_file)],
-    )
-    final_time = time.time() - begin
-
-    with tvm.target.Target(target):
-        with tvm.transform.PassContext(opt_level=3):
-            with autotvm.apply_history_best(record_file):
-                s, args = func(N, H, W, CO, CI, KH, KW, stride, padding, order)
-                mod = tvm.build(s, args=args, target=target, name="main")
-                mod(d_tvm, f_tvm, b_tvm)
-        r = []
-        for _ in range(5):
-            evaluator = mod.time_evaluator(mod.entry_name, dev, number=20, repeat=1)
-            mean_time = evaluator(d_tvm, f_tvm, b_tvm)
-            r.append(mean_time.mean)
-        r_measured = np.array(r)
-    
-    r, conf = get_best_time(record_file, False)
-
-    print("%s,%.6f,%.6f,%.6f,%.6f,%.4f" %(tag_name, np.mean(r), np.std(r), np.mean(r_measured), np.std(r_measured), final_time))    
-    print(conf)
     
     return r
 
@@ -128,8 +113,9 @@ if __name__ == "__main__":
     KH, KW = (3, 3)
     stride = (1, 1)
     padding = (1, 1)
-    interval = [128, 256, 512, 1024, 2048]
-    order = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]]
+    interval = [128]
+    #order = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]]
+    order = [[0,1,2]]
 
     arch = "x86"
     if len(sys.argv) > 1:
@@ -151,11 +137,8 @@ if __name__ == "__main__":
     for l, i in enumerate(interval):
         H, W = (i, i)
         print("\n(%d,%d)" %(i,i))
-        r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target)
-        '''
+        #r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target)
+        
         r =[]
         for j in range(len(order)):
             r.append(execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding, order[j], j, dev, target))
-            if j > 0:    
-                print(p_value(r[0], r[j]))
-        '''
