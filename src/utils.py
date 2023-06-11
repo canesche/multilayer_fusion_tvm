@@ -48,7 +48,7 @@ def auto_fusion_schedule_order(s, cfg, tensors, order):
         cfg = autotvm.get_config()
         name = "fuse_%d" % t
 
-        size_schedule = 8 if t == 0 or t == len(tensors)-1 else 9
+        size_schedule = 3 if t == 0 or t == len(tensors)-1 else 4
 
         cfg.define_knob(name, [i for i in range(size_schedule)])
 
@@ -57,7 +57,7 @@ def auto_fusion_schedule_order(s, cfg, tensors, order):
         actual_tensor = tensors[t]
         next_tensor = tensors[t+1]
 
-        print(next_tensor.op)
+        #print(next_tensor.op)
 
         if cfg[name].val == 1:
             s[actual_tensor].compute_at(s[next_tensor], next_tensor.op.axis[1])
