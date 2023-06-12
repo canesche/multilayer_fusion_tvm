@@ -2,6 +2,10 @@ import tvm, logging, sys, os, time
 from tvm import te, topi, autotvm
 import numpy as np
 
+#import logging
+#logging.getLogger('autotvm').setLevel(logging.DEBUG)
+#logging.getLogger('autotvm').addHandler(logging.StreamHandler(sys.stdout))
+
 from utils import auto_fusion_schedule_order, get_best_time, p_value
 
 dtype="float32"
@@ -9,9 +13,9 @@ dtype="float32"
 @autotvm.template("fusion")
 def fusion(N, H, W, CO, CI, KH, KW, stride, padding, order):
 
-    data = te.placeholder((N, CI, H, W), name="data")
-    bias = te.placeholder((1, W, 1), name="bias")
-    kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
+    data = te.placeholder((N, CI, H, W), name="data", dtype=dtype)
+    bias = te.placeholder((1, W, 1), name="bias", dtype=dtype)
+    kernel = te.placeholder((CO, CI, KH, KW), name="kernel", dtype=dtype)
 
     conv1 = topi.nn.conv2d(data, kernel, strides=stride, padding=padding, dilation=1, data_layout="NCHW")
     bias1 = topi.add(conv1, bias)
@@ -28,7 +32,7 @@ def fusion(N, H, W, CO, CI, KH, KW, stride, padding, order):
     return s, args
 
 
-def normal(N, H, W, CO, CI, KH, KW, stride, padding):
+def normal(N, H, W, CO, CI, KH, KW, stride, padding, arch):
 
     data = te.placeholder((N, CI, H, W), name="data")
     bias = te.placeholder((1, W, 1), name="bias")
@@ -39,29 +43,75 @@ def normal(N, H, W, CO, CI, KH, KW, stride, padding):
     relu1 = topi.nn.relu(bias1)
     pool1 = topi.nn.pool2d(relu1, kernel=(2,2), stride=(2,2), padding=(0,0,0,0), dilation=(1,1), pool_type="max", layout="NCHW")
 
-    #print(conv1.shape)
-    #print(bias1.shape)
-    #print(relu1.shape)
-    #print(pool1.shape)
-
     s = te.create_schedule(pool1.op)
     args = [data, kernel, bias]
+    tensors = [conv1, bias1, relu1, pool1]
+    #tensors = [conv1]
+
+    if arch == "cuda":
+        tile = 4
+        num_thread = 4
+        vthread = 2
+        block_factor = tile * num_thread
+
+        conv_global = s.cache_write(conv1, "global")
+        #s.compute_at(conv_global, )
+        bias_global = s.cache_write(bias1, "global")
+
+        #O1 = s.cache_write(conv1, "local")
+        #OL = s.cache_write(pool1, "local")
+
+        # create cache stage
+        #AA = s.cache_read(data, "shared", [O1])
+        #WW = s.cache_read(kernel, "shared", [OL])
+        #BB = s.cache_read(bias, "shared", [OL])
+
+        for t in tensors:
+            # Get the GPU thread indices
+            block_x = te.thread_axis("blockIdx.x")
+            block_y = te.thread_axis("blockIdx.y")
+            #block_z = te.thread_axis("blockIdx.z")
+            thread_x = te.thread_axis((0, num_thread), "threadIdx.x")
+            thread_y = te.thread_axis((0, num_thread), "threadIdx.y")
+            #thread_xz = te.thread_axis((0, vthread), "vthread", name="vx")
+            #thread_yz = te.thread_axis((0, vthread), "vthread", name="vy")
+            
+            axis = s[t].op.axis
+            #bz = s[t].fuse(axis[0], axis[1])
+            by, fi = s[t].split(axis[2], factor=block_factor)
+            bx, ni = s[t].split(axis[3], factor=block_factor)
+
+            #s[t].bind(bz, block_z)
+            s[t].bind(by, block_y)
+            s[t].bind(bx, block_x)
+
+            #tyz, fi = s[t].split(fi, nparts=vthread)  # virtual thread split
+            #txz, ni = s[t].split(ni, nparts=vthread)  # virtual thread split
+            ty, fi = s[t].split(fi, nparts=num_thread)
+            tx, ni = s[t].split(ni, nparts=num_thread)
+            #s[t].reorder( by, bx, ty, tx, fi, ni)
+
+            #s[t].bind(tyz, thread_yz)
+            #s[t].bind(txz, thread_xz)
+            s[t].bind(ty, thread_y)
+            s[t].bind(tx, thread_x)
+            #break
 
     return s, args
 
 
-def execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target):
+def execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target, arch):
 
-    s, args = normal(N, H, W, CO, CI, KH, KW, stride, padding)
+    s, args = normal(N, H, W, CO, CI, KH, KW, stride, padding, arch)
 
     d_tvm = tvm.nd.array((np.random.uniform(size=(N, CI, H, W))).astype(dtype), device=dev)
     f_tvm = tvm.nd.array((np.random.uniform(size=(CO, CI, KH, KW))).astype(dtype), device=dev)
     b_tvm = tvm.nd.array((np.random.uniform(size=(1, W, 1))).astype(dtype), device=dev) 
 
-    with tvm.transform.PassContext(opt_level=0):
-        mod = tvm.build(s, args=args, target=target, name="main")
-        mod(d_tvm, f_tvm, b_tvm)
-    
+    with tvm.target.Target(target):
+        with tvm.transform.PassContext(opt_level=0):
+            mod = tvm.build(s, args=args, target=target, name="main")
+            mod(d_tvm, f_tvm, b_tvm)
     r = []
     for _ in range(5):
         evaluator = mod.time_evaluator(mod.entry_name, dev, number=20, repeat=1)
@@ -86,7 +136,7 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding, or
         builder=autotvm.LocalBuilder(),
         runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100),
     )
-    tuner = autotvm.tuner.XGBTuner(task)
+    tuner = autotvm.tuner.GridSearchTuner(task)
     
     record_file = "../results/exp4_%s_%dx%d_%d.log" %(tag_name, H, W, number)
     
@@ -136,11 +186,11 @@ if __name__ == "__main__":
         arch = sys.argv[1]
 
     if arch == "x86":
-        dev = tvm.cpu(0)
         target = "llvm"
-    elif arch == "arm":
         dev = tvm.cpu(0)
+    elif arch == "arm":
         target = "llvm -device=arm_cpu"
+        dev = tvm.cpu(0)
     elif arch == "cuda":
         target = "cuda"
         dev = tvm.cuda(0)
@@ -151,7 +201,8 @@ if __name__ == "__main__":
     for l, i in enumerate(interval):
         H, W = (i, i)
         print("\n(%d,%d)" %(i,i))
-        r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target)
+        r_normal = execute_normal(N, H, W, CO, CI, KH, KW, stride, padding, dev, target, arch)
+
         for j in range(len(order)):
             r = execute_autoTVM("fusion", fusion, N, H, W, CO, CI, KH, KW, stride, padding, order[j], j, dev, target)
             print(p_value(r_normal, r))
