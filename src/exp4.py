@@ -134,7 +134,7 @@ def execute_autoTVM(tag_name, func, N, H, W, CO, CI, KH, KW, stride, padding, or
     
     measure_option = autotvm.measure_option(
         builder=autotvm.LocalBuilder(),
-        runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100),
+        runner=autotvm.LocalRunner(repeat=5, number=10, min_repeat_ms=100, enable_cpu_cache_flush=True, timeout=100),
     )
     tuner = autotvm.tuner.GridSearchTuner(task)
     
