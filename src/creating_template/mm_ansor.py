@@ -1,7 +1,9 @@
+import sys
 import numpy as np
 import time
 import tvm
 from tvm import te, auto_scheduler
+import utils
 
 @auto_scheduler.register_workload
 def matmul(N, L, M, dtype="float32"):
@@ -14,9 +16,26 @@ def matmul(N, L, M, dtype="float32"):
     return [A, B, C]
 
 if __name__ == "__main__":
+
+    arch = "cpu"
+
+    if len(sys.argv) == 1:
+        arch = sys.argv[1]
+
+    if arch == "cpu":
+        target = tvm.target.Target("llvm")
+        dev = tvm.cpu() 
+    elif arch == "cuda":
+        target = tvm.target.Target("cuda")
+        dev = tvm.cuda()
+    else:
+        print("Archtecture doesn't support.")
+        exit(0)
+
+    print("Arch:", arch)
+
     ## Create the search task
-    target = tvm.target.Target("cuda")
-    dev = tvm.cuda()
+    
     N, L, M = 1000, 800, 700
 
     np.random.seed(0)
@@ -27,10 +46,10 @@ if __name__ == "__main__":
     task = tvm.auto_scheduler.SearchTask(func=matmul, args=(N, L, M, "float32"), target=target)
 
     # Inspect the computational graph
-    print("Computational DAG:", task.compute_dag)
+    #print("Computational DAG:", task.compute_dag)
 
     ## Set Parameters for Auto-Scheduler
-    log_file = "gpu_matmul.json"
+    log_file = arch + "_matmul.json"
     tune_option = auto_scheduler.TuningOptions(
         num_measure_trials=200,  # change this to 20000 to achieve the best performance
         runner=auto_scheduler.LocalRunner(number=2, repeat=3),
@@ -48,6 +67,7 @@ if __name__ == "__main__":
     # Apply the best schedule
     sch, args = task.apply_best(log_file)
 
+    '''
     ## Check correctness and evaluate performance
     with auto_scheduler.ApplyHistoryBest(log_file):
         func = tvm.build(sch, args, target)
@@ -57,12 +77,18 @@ if __name__ == "__main__":
         func(a_tvm, b_tvm, c_tvm)
 
     # Check results
-    np.testing.assert_allclose(c_np, c_tvm.numpy(), rtol=1e-3)
+    #np.testing.assert_allclose(c_np, c_tvm.numpy(), rtol=1e-3)
 
     # Evaluate execution time.
-    evaluator = func.time_evaluator(func.entry_name, dev, number=10, repeat=3)
-    eval = evaluator(a_tvm, b_tvm, c_tvm)
-    print(", %f, %f, %f" % (eval.mean, eval.std, end-start))
+    #evaluator = func.time_evaluator(func.entry_name, dev, number=10, repeat=3)
+    #eval = evaluator(a_tvm, b_tvm, c_tvm)
+    #print(", %f, %f, %f" % (eval.mean, eval.std, end-start))
 
     #print("Equivalent python schedule:")
     #print(task.print_best(log_file))
+    '''
+
+    time_avg, best_cfg = utils.get_best_time(log_file)
+
+    print("Time spent:", time_avg)
+    print("Config:", best_cfg) 

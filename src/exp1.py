@@ -4,7 +4,7 @@ import numpy as np
 
 from utils import auto_fusion_schedule, auto_tile_schedule, get_best_time, p_value
 
-#import logging
+#import logging 
 #logging.getLogger('autotvm').setLevel(logging.DEBUG)
 #logging.getLogger('autotvm').addHandler(logging.StreamHandler(sys.stdout))
 
