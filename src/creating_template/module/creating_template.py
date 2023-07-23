@@ -27,19 +27,28 @@ from tvm import autotvm
 
 class Template_ansor():
 
-    cfg = autotvm.get_config()
+    cfg = None
     sch = None
     tensors = [None]
+    args = [None]
     search_space = [0, 1, 2, 4, 8, 16, 32, 46, 64]
+    axis = None
 
-    def __init__(self, s, t) -> None:
-        sch = s
-        tensors = t
+
+    def __init__(self, s, t, c, a) -> None:
+        self.sch = s
+        self.tensors = t
+        self.cfg = c
+        self.args = a
+    
+    def ret(self):
+        return self.sch, self.args
 
     def space(self, type, values):
-
         if type == "SP":
             self.SP(values)
+        elif type == "CHW":
+            self.CHW(values)
         else:
             raise("Not implemented space search")
 
@@ -50,6 +59,21 @@ class Template_ansor():
                 continue
             new_interval.append(elem)
         return new_interval
+
+
+    def CHW(self, values):
+        assert len(values) == 2
+        stage_id = values[0]
+        scope_name = values[1]
+        name = "CHW_" + str(stage_id)
+        self.cfg.define_knob(name, [0, 1])
+        if self.cfg[name].val > 0:
+            # Allocate write cache
+            self.tensors[stage_id] = self.sch.cache_write(self.tensors[stage_id], scope_name)
+
+
+    def print(self):
+        print(tvm.lower(self.sch, self.args))
 
     def SP(self, values):
         '''
@@ -64,11 +88,29 @@ class Template_ansor():
         lengths = values[3]
         inner_to_outer = values[4]
 
-        name_opt = "SP"
-        axis = self.sch[self.tensors[iter_id]].op.axis
-        reduce_axis = self.sch[self.tensors[iter_id]].op.reduce_axis
+        t = self.tensors[stage_id]
+        axis = self.sch[t].op.axis
+        reduce_axis = self.sch[t].op.reduce_axis[iter_id] if len(self.sch[t].op.reduce_axis) > 0 else None
+        name = "SP_%d" % (iter_id)
 
-        self.cfg.define_knob("SP", self.limited_interval(loop_extent, self.search_space))
-        if self.cfg[name_opt].val != 0:
-            _, _ = self.sch[self.tensors[iter_id]].split(axis[inner_to_outer], factor=32)
+        print(axis)
+        print(reduce_axis)
+
+        # define search space
+        self.cfg.define_knob(name, self.search_space)
+
+        # schedule according to config
+        if self.cfg[name].val > 0:
+            _, _ = self.tensors[stage_id].split(axis[iter_id], self.cfg[name].val)
+        #xo, xi = s[C].split(x, cfg["tile_x"].val)
+
+        #s[C].reorder(yo, xo, k, yi, xi)
+
+        #name_opt = "SP"
+        #axis = self.sch[self.tensors[iter_id]].op.axis
+        #reduce_axis = self.sch[self.tensors[iter_id]].op.reduce_axis
+
+        #self.cfg.define_knob("SP", self.limited_interval(loop_extent, self.search_space))
+        #if self.cfg[name_opt].val != 0:
+        #    _, _ = self.sch[self.tensors[iter_id]].split(axis[inner_to_outer], factor=32)
 
