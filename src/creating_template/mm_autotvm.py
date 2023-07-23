@@ -18,10 +18,19 @@ def matmul(N, L, M, dtype="float32"):
     args = [A, B, C]
     tensors = [C]
 
-    cfg = Template_ansor(s, tensors)
-    cfg.sp(s, tensors, [])
-    
-    sp(s, cfg, tensors, [])
+    cfg = autotvm.get_config()
+    cfg.define_knob("SP", [i for i in range(6)])
+
+    axis = s[C].op.axis
+    reduce_axis = s[C].op.reduce_axis
+
+    if cfg["SP"].val != 0:
+        _, _ = s[C].split(axis[0], cfg["SP"].val)
+
+    #cfg = Template_ansor(s, tensors)
+    #cfg.space('SP', [2, 0, 1000, [20, 1, 2], 1])
+
+    #print(cfg.cfg)
 
     return [s, args]
 
@@ -56,6 +65,7 @@ if __name__ == "__main__":
 
     a_tvm = tvm.nd.array(a_np, device=dev)
     b_tvm = tvm.nd.array(b_np, device=dev)
+    c_tvm = tvm.nd.array(c_np, device=dev)
     
     task = autotvm.task.create("mm", args=(N, L, M, dtype), target=target)
     print(task.config_space)
@@ -84,7 +94,7 @@ if __name__ == "__main__":
             with autotvm.apply_history_best(record_file):
                 s, args = matmul(N, L, M)
                 mod = tvm.build(s, args=args, name="main")
-                mod(a_tvm, b_tvm)
+                mod(a_tvm, b_tvm, c_tvm)
 
     '''
     ## Check correctness and evaluate performance

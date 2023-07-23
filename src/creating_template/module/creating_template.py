@@ -30,6 +30,7 @@ class Template_ansor():
     cfg = autotvm.get_config()
     sch = None
     tensors = [None]
+    search_space = [0, 1, 2, 4, 8, 16, 32, 46, 64]
 
     def __init__(self, s, t) -> None:
         sch = s
@@ -41,6 +42,14 @@ class Template_ansor():
             self.SP(values)
         else:
             raise("Not implemented space search")
+
+    def limited_interval(self, max_value, interval):
+        new_interval = []
+        for elem in interval:
+            if max_value <= elem:
+                continue
+            new_interval.append(elem)
+        return new_interval
 
     def SP(self, values):
         '''
@@ -55,5 +64,9 @@ class Template_ansor():
         lengths = values[3]
         inner_to_outer = values[4]
 
-        xo, xi = self.sch[B].split(B.op.axis[0], factor=32)
+        name_opt = "SP"
+
+        self.cfg.define_knob("SP", self.limited_interval(loop_extent, self.search_space))
+        if self.cfg[name_opt].val != 0:
+            _, _ = self.sch[self.tensors[iter_id]].split(self.tensors[iter_id].op.axis[inner_to_outer], factor=32)
 
