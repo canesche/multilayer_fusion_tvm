@@ -1,28 +1,32 @@
-import sys, os
+import sys, os, logging
 import numpy as np
 import time
 import tvm
 from tvm import te, autotvm
-from module.creating_template import *
+#from module.creating_template import *
 from utils import get_best_time
 
-@autotvm.template("mm")
-def matmul(N, L, M, dtype="float32"):
-    A = te.placeholder((N, L), name="A", dtype=dtype)
-    B = te.placeholder((L, M), name="B", dtype=dtype)
+import logging 
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("autotvm")
 
-    k = te.reduce_axis((0, L), name="k")
-    C = te.compute((N, M), lambda i, j: te.sum(A[i, k] * B[k, j], axis=k), name="C")
+@autotvm.template("mm")
+def matmul(N, dtype="float32"):
+    A = te.placeholder((N, N), name="A", dtype=dtype)
+    B = te.placeholder((N, N), name="B", dtype=dtype)
+
+    k = te.reduce_axis((0, N), name="k")
+    C = te.compute((N, N), lambda i, j: te.sum(A[i, k] * B[k, j], axis=k), name="C")
 
     s = te.create_schedule(C.op)
     args = [A, B, C]
     tensors = [C]
 
     cfg = autotvm.get_config()
-    cfg.define_knob("SP", [i for i in range(6)])
+    cfg.define_knob("SP", [16, 32])
 
     axis = s[C].op.axis
-    reduce_axis = s[C].op.reduce_axis
+    #reduce_axis = s[C].op.reduce_axis
 
     if cfg["SP"].val != 0:
         _, _ = s[C].split(axis[0], cfg["SP"].val)
@@ -31,6 +35,7 @@ def matmul(N, L, M, dtype="float32"):
     #cfg.space('SP', [2, 0, 1000, [20, 1, 2], 1])
 
     #print(cfg.cfg)
+    print(tvm.lower(s, args))
 
     return [s, args]
 
@@ -38,7 +43,7 @@ if __name__ == "__main__":
 
     arch = "cpu"
 
-    if len(sys.argv) == 1:
+    if len(sys.argv) > 1:
         arch = sys.argv[1]
 
     if arch == "cpu":
@@ -55,19 +60,19 @@ if __name__ == "__main__":
 
     ## Create the search task
     
-    N, L, M = 1000, 800, 700
+    N = 1024
     dtype = "float32"
 
     np.random.seed(0)
-    a_np = np.random.uniform(size=(N, L)).astype(np.float32)
-    b_np = np.random.uniform(size=(L, M)).astype(np.float32)
+    a_np = np.random.uniform(size=(N, N)).astype(np.float32)
+    b_np = np.random.uniform(size=(N, N)).astype(np.float32)
     c_np = a_np.dot(b_np)
 
     a_tvm = tvm.nd.array(a_np, device=dev)
     b_tvm = tvm.nd.array(b_np, device=dev)
     c_tvm = tvm.nd.array(c_np, device=dev)
     
-    task = autotvm.task.create("mm", args=(N, L, M, dtype), target=target)
+    task = autotvm.task.create("mm", args=(N, dtype), target=target)
     print(task.config_space)
 
     measure_option = autotvm.measure_option(
@@ -75,7 +80,7 @@ if __name__ == "__main__":
         runner=autotvm.LocalRunner(repeat=3, number=10, min_repeat_ms=100),
     )
 
-    tuner = autotvm.tuner.XGBTuner(task)
+    tuner = autotvm.tuner.GridSearchTuner(task)
     record_file = "testing.log"
     
     if os.path.isfile(record_file):
@@ -92,7 +97,7 @@ if __name__ == "__main__":
     with tvm.target.Target(target):
         with tvm.transform.PassContext(opt_level=3):
             with autotvm.apply_history_best(record_file):
-                s, args = matmul(N, L, M)
+                s, args = matmul(N, dtype)
                 mod = tvm.build(s, args=args, name="main")
                 mod(a_tvm, b_tvm, c_tvm)
 

@@ -65,8 +65,10 @@ class Template_ansor():
         inner_to_outer = values[4]
 
         name_opt = "SP"
+        axis = self.sch[self.tensors[iter_id]].op.axis
+        reduce_axis = self.sch[self.tensors[iter_id]].op.reduce_axis
 
         self.cfg.define_knob("SP", self.limited_interval(loop_extent, self.search_space))
         if self.cfg[name_opt].val != 0:
-            _, _ = self.sch[self.tensors[iter_id]].split(self.tensors[iter_id].op.axis[inner_to_outer], factor=32)
+            _, _ = self.sch[self.tensors[iter_id]].split(axis[inner_to_outer], factor=32)
 
