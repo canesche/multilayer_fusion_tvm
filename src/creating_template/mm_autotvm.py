@@ -38,27 +38,50 @@ def matmul(N, L, M, dtype):
     #   ['PR', 2, 0, 'auto_unroll_max_step$512'], 
     #   ['AN', 2, 9, 2]]]
 
-    ta = Template_ansor(s, tensors, cfg, args)
-    # ta.space("CHW", [0, 'local']) # Error!
-    ta.space("SP", [0, 0, 1000, [20, 1, 20], 0])
+    bn = 32
+    #kfactor = 4
+    # Blocking by loop tiling
+    #mo, no, mi, ni = s[C].tile(C.op.axis[0], C.op.axis[1], bn, bn)
+    #(kaxis,) = s[C].op.reduce_axis
+    #ko, ki = s[C].split(kaxis, factor=kfactor)
 
-    ta.print()
+    # Hoist reduction domain outside the blocking loop
+    #s[C].reorder(mo, no, ko, ki, mi, ni)
+
+    #cfg.define_knob(["CHW", 0, 1])
+    #if cfg["CHW"].val != 0:
+    #    C = s.cache_write(C, "local")
+    #print(tvm.lower(s, args))
+
+
+
+    #mo, no, mi, ni = s[C].tile(C.op.axis[0], C.op.axis[1], bn, bn)
+
+    # Write cache is computed at no
+    #s[CC].compute_at(s[C], no)
+
+    #ta = Template_ansor(s, tensors, cfg, args)
+    #ta.space(["CHW", 0, 'local']) # Error!
+    #ta.space("SP", [0, 0, 1000, [20, 1, 20], 0])
+
+    #ta.print()
 
     # schedule
-    y, x = s[C].op.axis
-    k = s[C].op.reduce_axis[0]
+    #y, x = s[C].op.axis
+    #k = s[C].op.reduce_axis[0]
 
     # 3. define search space
-    cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
+    #cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
     #cfg.define_knob("tile_x", [1, 2, 4, 8, 16])
 
     # 4. schedule according to config
-    yo, yi = s[C].split(y, cfg["tile_x"].val)
+    #yo, yi = s[C].split(y, cfg["tile_x"].val)
     #xo, xi = s[C].split(x, cfg["tile_x"].val)
 
     #s[C].reorder(yo, xo, k, yi, xi)
 
     return ta.ret()
+    #return s, args
 
 if __name__ == "__main__":
     N, L, M = 1000, 800, 700
@@ -72,8 +95,6 @@ if __name__ == "__main__":
         builder="local", 
         runner=autotvm.LocalRunner(number=5, repeat=3)
     )
-
-    exit()
 
     tuner = autotvm.tuner.RandomTuner(task)
     tuner.tune(

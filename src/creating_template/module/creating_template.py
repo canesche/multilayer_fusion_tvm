@@ -44,11 +44,15 @@ class Template_ansor():
     def ret(self):
         return self.sch, self.args
 
-    def space(self, type, values):
+    def space(self, values):
+        type = values[0]
         if type == "SP":
             self.SP(values)
         elif type == "CHW":
-            self.CHW(values)
+            assert len(values) == 3
+            stage_id = values[1]
+            scope_name = values[2]
+            self.CHW(type, stage_id, scope_name)
         else:
             raise("Not implemented space search")
 
@@ -61,14 +65,10 @@ class Template_ansor():
         return new_interval
 
 
-    def CHW(self, values):
-        assert len(values) == 2
-        stage_id = values[0]
-        scope_name = values[1]
-        name = "CHW_" + str(stage_id)
+    def CHW(self, type, stage_id, scope_name):
+        name = type + "_" + str(stage_id)
         self.cfg.define_knob(name, [0, 1])
-        if self.cfg[name].val > 0:
-            # Allocate write cache
+        if self.cfg[name].val != 0:
             self.tensors[stage_id] = self.sch.cache_write(self.tensors[stage_id], scope_name)
 
 
