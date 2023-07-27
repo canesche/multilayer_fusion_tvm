@@ -53,8 +53,6 @@ def matmul(N, L, M, dtype):
     #    C = s.cache_write(C, "local")
     #print(tvm.lower(s, args))
 
-
-
     #mo, no, mi, ni = s[C].tile(C.op.axis[0], C.op.axis[1], bn, bn)
 
     # Write cache is computed at no
@@ -67,21 +65,25 @@ def matmul(N, L, M, dtype):
     #ta.print()
 
     # schedule
-    #y, x = s[C].op.axis
-    #k = s[C].op.reduce_axis[0]
+    y, x = s[C].op.axis
+    k = s[C].op.reduce_axis[0]
 
     # 3. define search space
-    #cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
-    #cfg.define_knob("tile_x", [1, 2, 4, 8, 16])
+    cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
+    cfg.define_knob("tile_x", [1, 2, 4, 8, 16])
 
     # 4. schedule according to config
-    #yo, yi = s[C].split(y, cfg["tile_x"].val)
+    #yo, yi = s[C].split(y, cfg["tile_y"].val)
+    #yo, yi = s[C].split(y, nparts=cfg["tile_y"].val)
+    xo, yo = s[C].split(y, 20)
+    xo, yo = s[C].split(y, 1)
+    xo, yo = s[C].split(y, 2)
     #xo, xi = s[C].split(x, cfg["tile_x"].val)
 
     #s[C].reorder(yo, xo, k, yi, xi)
 
-    return ta.ret()
-    #return s, args
+    #return ta.ret()
+    return s, args
 
 if __name__ == "__main__":
     N, L, M = 1000, 800, 700
