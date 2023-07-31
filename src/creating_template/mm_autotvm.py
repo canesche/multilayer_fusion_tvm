@@ -58,32 +58,33 @@ def matmul(N, L, M, dtype):
     # Write cache is computed at no
     #s[CC].compute_at(s[C], no)
 
-    #ta = Template_ansor(s, tensors, cfg, args)
+    ta = Template_ansor(s, tensors, cfg, args)
     #ta.space(["CHW", 0, 'local']) # Error!
-    #ta.space("SP", [0, 0, 1000, [20, 1, 20], 0])
+    ta.space(["SP", 0, 0, 1000, [20, 1, 20], 0])
+    ta.space(['SP', 0, 1, 700, [1, 700, 1], 1])
 
     #ta.print()
 
     # schedule
-    y, x = s[C].op.axis
-    k = s[C].op.reduce_axis[0]
+    #y, x = s[C].op.axis
+    #k = s[C].op.reduce_axis[0]
 
     # 3. define search space
-    cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
-    cfg.define_knob("tile_x", [1, 2, 4, 8, 16])
+    #cfg.define_knob("tile_y", [1, 2, 4, 8, 16])
+    #cfg.define_knob("tile_x", [1, 2, 4, 8, 16])
 
     # 4. schedule according to config
-    #yo, yi = s[C].split(y, cfg["tile_y"].val)
-    #yo, yi = s[C].split(y, nparts=cfg["tile_y"].val)
-    xo, yo = s[C].split(y, 20)
-    xo, yo = s[C].split(y, 1)
-    xo, yo = s[C].split(y, 2)
+    #x0, y0 = s[C].split(y, 20)
+    #x1, y1 = s[C].split(y0, 1)
+    #x2, y2 = s[C].split(y1, 2)
     #xo, xi = s[C].split(x, cfg["tile_x"].val)
+
+    #print(tvm.lower(s, args))
 
     #s[C].reorder(yo, xo, k, yi, xi)
 
-    #return ta.ret()
-    return s, args
+    return ta.ret()
+    #return s, args
 
 if __name__ == "__main__":
     N, L, M = 1000, 800, 700

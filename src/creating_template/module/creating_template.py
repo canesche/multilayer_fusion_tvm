@@ -47,7 +47,13 @@ class Template_ansor():
     def space(self, values):
         type = values[0]
         if type == "SP":
-            self.SP(values)
+            assert len(values) == 6
+            stage_id = values[1]
+            iter_id = values[2]
+            loop_extent = values[3]
+            lengths = values[4]
+            inner_to_outer = values[5]
+            self.SP(type, stage_id, iter_id, loop_extent, lengths, inner_to_outer)
         elif type == "CHW":
             assert len(values) == 3
             stage_id = values[1]
@@ -75,42 +81,29 @@ class Template_ansor():
     def print(self):
         print(tvm.lower(self.sch, self.args))
 
-    def SP(self, values):
+    def SP(self, type, stage_id, iter_id, loop_extent, lengths, inner_to_outer):
         '''
             SP: SplitStep
             ("SP", stage_id, iter_id, loop_extent, lengths, inner_to_outer)
         '''
-        assert len(values) == 5
-        
-        stage_id = values[0]
-        iter_id = values[1]
-        loop_extent = values[2]
-        lengths = values[3]
-        inner_to_outer = values[4]
-
         t = self.tensors[stage_id]
         axis = self.sch[t].op.axis
-        reduce_axis = self.sch[t].op.reduce_axis[iter_id] if len(self.sch[t].op.reduce_axis) > 0 else None
-        name = "SP_%d" % (iter_id)
+        reduce_axis = self.sch[t].op.reduce_axis if len(self.sch[t].op.reduce_axis) > 0 else None
 
         print(axis)
         print(reduce_axis)
 
-        # define search space
-        self.cfg.define_knob(name, self.search_space)
+        for i in range(len(lengths)):
+            name = type + "_%d_%d" % (iter_id, i)
+            # define search space
+            self.cfg.define_knob(name, self.search_space)
 
         # schedule according to config
-        if self.cfg[name].val > 0:
-            _, _ = self.tensors[stage_id].split(axis[iter_id], self.cfg[name].val)
-        #xo, xi = s[C].split(x, cfg["tile_x"].val)
-
-        #s[C].reorder(yo, xo, k, yi, xi)
-
-        #name_opt = "SP"
-        #axis = self.sch[self.tensors[iter_id]].op.axis
-        #reduce_axis = self.sch[self.tensors[iter_id]].op.reduce_axis
-
-        #self.cfg.define_knob("SP", self.limited_interval(loop_extent, self.search_space))
-        #if self.cfg[name_opt].val != 0:
-        #    _, _ = self.sch[self.tensors[iter_id]].split(axis[inner_to_outer], factor=32)
+        for i in range(len(lengths)):
+            name = type + "_%d_%d" % (iter_id, i)
+            if self.cfg[name].val > 0:
+                if i == 0:
+                    _, y = self.sch[t].split(axis[iter_id], self.cfg[name].val)
+                else:
+                    _, y = self.sch[t].split(y, self.cfg[name].val)
 
