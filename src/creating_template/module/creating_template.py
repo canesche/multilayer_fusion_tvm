@@ -31,7 +31,7 @@ class Template_ansor():
     sch = None
     tensors = [None]
     args = [None]
-    search_space = [0, 1, 2, 4, 8, 16, 32, 46, 64]
+    search_space = [1, 2, 4, 8, 16, 32, 46, 64]
     axis = None
 
 
@@ -99,11 +99,26 @@ class Template_ansor():
             self.cfg.define_knob(name, self.search_space)
 
         # schedule according to config
-        for i in range(len(lengths)):
-            name = type + "_%d_%d" % (iter_id, i)
-            if self.cfg[name].val > 0:
-                if i == 0:
-                    _, y = self.sch[t].split(axis[iter_id], self.cfg[name].val)
-                else:
-                    _, y = self.sch[t].split(y, self.cfg[name].val)
+        if len(lengths) == 3:
+            name = type + "_%d_%d" % (iter_id, 0)
+            x0, y0 = self.sch[t].split(axis[iter_id], self.cfg[name].val)
+            name = type + "_%d_%d" % (iter_id, 1)
+            x1, y1 = self.sch[t].split(y0, self.cfg[name].val)
+            name = type + "_%d_%d" % (iter_id, 2)
+            x2, y2 = self.sch[t].split(y1, self.cfg[name].val)
+            # TODO: best order.
+            # this order is not the best, but get good result
+            if reduce_axis == None:
+                self.sch[t].reorder(x0, x1, x2, y2)
+            else:
+                self.sch[t].reorder(x0, reduce_axis[0], x1, x2, y2)
+        elif len(lengths) == 1:
+            name = type + "_%d_%d" % (iter_id, 0)
+            x0, y0 = self.sch[t].split(axis[iter_id], self.cfg[name].val)
+            # TODO: best order.
+            # this order is not the best, but get good result
+            if reduce_axis == None:
+                self.sch[t].reorder(x0, y0)
+            else:
+                self.sch[t].reorder(x0, reduce_axis[0], y0)
 

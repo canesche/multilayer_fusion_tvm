@@ -7,6 +7,7 @@ from tvm import te
 import tvm.testing
 
 from tvm import autotvm
+from utils import get_best_time
 from module.creating_template import Template_ansor
 
 
@@ -59,9 +60,10 @@ def matmul(N, L, M, dtype):
     #s[CC].compute_at(s[C], no)
 
     ta = Template_ansor(s, tensors, cfg, args)
-    #ta.space(["CHW", 0, 'local']) # Error!
+    ta.space(["CHW", 0, 'local']) # Error!
     ta.space(["SP", 0, 0, 1000, [20, 1, 20], 0])
     ta.space(['SP', 0, 1, 700, [1, 700, 1], 1])
+    ta.space(['SP', 0, 2, 800, [5], 1])
 
     #ta.print()
 
@@ -101,7 +103,7 @@ if __name__ == "__main__":
 
     tuner = autotvm.tuner.RandomTuner(task)
     tuner.tune(
-        n_trial=5,
+        n_trial=100,
         measure_option=measure_option,
         callbacks=[autotvm.callback.log_to_file("matmul.log")],
     )
@@ -121,3 +123,7 @@ if __name__ == "__main__":
     func(tvm.nd.array(a_np), tvm.nd.array(b_np), c_tvm)
 
     tvm.testing.assert_allclose(c_np, c_tvm.numpy(), rtol=1e-4)
+
+    best_time, best_config = get_best_time("matmul.log")
+
+    print(best_time, best_config)
