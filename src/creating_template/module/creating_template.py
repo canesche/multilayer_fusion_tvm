@@ -33,6 +33,7 @@ class Template_ansor():
     args = [None]
     search_space = [1, 2, 4, 8, 16, 32, 46, 64]
     axis = None
+    order = []
 
 
     def __init__(self, s, t, c, a) -> None:
@@ -81,6 +82,14 @@ class Template_ansor():
     def print(self):
         print(tvm.lower(self.sch, self.args))
 
+    
+    def RE(self, type, iter_id):
+        '''
+            RE: ReorderStep
+        ''' 
+        pass
+
+
     def SP(self, type, stage_id, iter_id, loop_extent, lengths, inner_to_outer):
         '''
             SP: SplitStep
@@ -109,9 +118,11 @@ class Template_ansor():
             # TODO: best order.
             # this order is not the best, but get good result
             if reduce_axis == None:
-                self.sch[t].reorder(x0, x1, x2, y2)
+                self.order.append([x0, x1, x2, y2])
+                #self.sch[t].reorder(x0, x1, x2, y2)
             else:
-                self.sch[t].reorder(x0, reduce_axis[0], x1, x2, y2)
+                self.order.append([x0, reduce_axis[0], x1, x2, y2])
+                #self.sch[t].reorder(x0, reduce_axis[0], x1, x2, y2)
         elif len(lengths) == 1:
             name = type + "_%d_%d" % (iter_id, 0)
             x0, y0 = self.sch[t].split(axis[iter_id], self.cfg[name].val)
